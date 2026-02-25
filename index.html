@@ -482,7 +482,7 @@
          * Se estiver vazio, o sistema usará o MOCK_DATA local para demonstração.
          */
         const CONFIG = {
-            API_URL: "https://script.google.com/macros/s/AKfycbz0PiqCH-jcEomy2zIOcPA_7vkWdvn0Y27fLh7KwgKVEejZHDz2lrQ6nL1ipYDM0WXZdA/exec" // Ex: "https://script.google.com/macros/s/SEU_ID/exec"
+            API_URL: "https://script.google.com/macros/s/AKfycbzpOjlOhVgofAfS54f3nPZEpOVHJ1pceq2Djzaztf8gUWpIzuSYF7dXsuOm0QF-XZDtTg/exec" // Ex: "https://script.google.com/macros/s/SEU_ID/exec"
         };
 
         // --- DADOS MOCKADOS (Banco de Dados Local Inicial) ---
@@ -1524,15 +1524,14 @@
 
             saveDataLocally() {
                 localStorage.setItem('erp_data', JSON.stringify(State.data));
-                // Em um cenário real com a API conectada, aqui faríamos um fetch() para o Apps Script
+                
+                // Envia as alterações para a planilha em tempo real
                 if(CONFIG.API_URL) {
                     console.log('Enviando dados para o Google Sheets via API...');
-                    /* Exemplo de POST:
                     fetch(CONFIG.API_URL, {
                         method: 'POST',
                         body: JSON.stringify({ action: 'syncData', payload: State.data })
-                    });
-                    */
+                    }).catch(error => console.error('Erro na sincronização:', error));
                 }
             }
         };
