@@ -124,6 +124,9 @@
                 </div>
                 
                 <div class="flex items-center gap-4">
+                    <button onclick="App.sincronizarComPlanilha()" class="w-9 h-9 rounded-full bg-brand-50 dark:bg-brand-900/40 flex items-center justify-center text-brand-600 dark:text-brand-400 hover:bg-brand-100 dark:hover:bg-brand-900/80 transition" title="Sincronizar com a Planilha">
+                        <i class="ph ph-arrows-clockwise text-lg"></i>
+                    </button>
                     <button onclick="App.toggleTheme()" class="w-9 h-9 rounded-full bg-slate-100 dark:bg-slate-700 flex items-center justify-center text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600 transition">
                         <i class="ph ph-moon dark:hidden text-lg"></i>
                         <i class="ph ph-sun hidden dark:block text-lg"></i>
@@ -402,7 +405,7 @@
                         </select>
                     </div>
                     <div>
-                        <label class="block text-sm font-medium mb-1">Valor (R$) <span class="text-red-500">*</span></label>
+                        <label class="block text-sm font-medium mb-1">Valor Total (R$) <span class="text-red-500">*</span></label>
                         <input type="number" id="fin-valor" step="0.01" placeholder="0.00" class="w-full px-3 py-2 rounded-lg border dark:border-slate-600 bg-transparent focus:ring-2 focus:ring-brand-500 outline-none">
                     </div>
                     <div>
@@ -415,6 +418,10 @@
                             <option value="pago">Pago / Recebido</option>
                             <option value="pendente">Pendente</option>
                         </select>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium mb-1">Qtd. Parcelas <span class="text-xs text-slate-400 dark:text-slate-500">(1 = à vista)</span></label>
+                        <input type="number" id="fin-parcelas" min="1" value="1" class="w-full px-3 py-2 rounded-lg border dark:border-slate-600 bg-transparent focus:ring-2 focus:ring-brand-500 outline-none">
                     </div>
                 </div>
             </div>
@@ -596,6 +603,7 @@
                                 document.getElementById('user-role').textContent = result.data.perfil;
                             }
                             this.showMainApp();
+                            this.sincronizarComPlanilha();
                         } else {
                             this.showAlert('Acesso Negado', result.message || 'Credenciais inválidas.', true);
                         }
@@ -612,11 +620,57 @@
                 }
             },
 
-            logout() {
+            async logout() {
+                if (CONFIG.API_URL && localStorage.getItem('erp_auth') === 'true') {
+                    try {
+                        document.getElementById('user-name').textContent = "Salvando...";
+                        await fetch(CONFIG.API_URL, {
+                            method: 'POST',
+                            body: JSON.stringify({ action: 'syncData', payload: State.data })
+                        });
+                    } catch (error) {
+                        console.error('Erro ao sincronizar no logout:', error);
+                    }
+                }
+
                 localStorage.removeItem('erp_auth');
                 document.getElementById('main-app').classList.add('hidden');
                 document.getElementById('login-screen').classList.remove('hidden');
                 document.getElementById('login-screen').classList.add('flex');
+                document.getElementById('user-name').textContent = "Admin User";
+            },
+
+            async sincronizarComPlanilha() {
+                if (!CONFIG.API_URL) {
+                    this.showAlert('Aviso', 'A URL da API (Planilha) não está configurada.', false);
+                    return;
+                }
+                
+                try {
+                    const response = await fetch(CONFIG.API_URL + '?action=getDadosCompletos');
+                    const result = await response.json();
+                    
+                    if (result.status === 'success' && result.data) {
+                        // Atualiza o estado e localStorage
+                        State.data = result.data;
+                        localStorage.setItem('erp_data', JSON.stringify(State.data));
+                        
+                        // Recarrega a view atual
+                        if(State.currentView === 'dashboard') {
+                            this.renderDashboard();
+                        } else if(State.currentView === 'ordens') {
+                            this.renderKanban();
+                        } else {
+                            this.renderCurrentTable();
+                        }
+                        
+                        this.showAlert('Sucesso', 'Dados sincronizados com sucesso a partir da planilha.');
+                    } else {
+                        this.showAlert('Erro', result.message || 'Falha ao obter os dados atualizados.', true);
+                    }
+                } catch (error) {
+                    this.showAlert('Erro de Conexão', 'Não foi possível baixar os dados da planilha.', true);
+                }
             },
 
             showMainApp() {
@@ -769,7 +823,7 @@
                         return dataLancamento >= trintaDiasAtras;
                     });
                     
-                    // NOVA ADIÇÃO: Ordenar por data decrescente (mais recente primeiro)
+                    // Ordenar por data decrescente (mais recente primeiro)
                     data.sort((a, b) => new Date(b.data || 0) - new Date(a.data || 0));
                 }
                 
@@ -799,7 +853,7 @@
                 let html = '';
                 let saldoTotal = 0;
 
-                // --- NOVA ADIÇÃO: Movimentação de Entradas e Saídas (Últimos 30 Dias) ---
+                // Movimentação de Entradas e Saídas (Últimos 30 Dias)
                 const trintaDiasAtras = new Date();
                 trintaDiasAtras.setDate(trintaDiasAtras.getDate() - 30);
                 trintaDiasAtras.setHours(0, 0, 0, 0);
@@ -823,7 +877,6 @@
                         <span class="text-xl font-bold text-red-600 dark:text-red-400">R$ ${saidas30d.toFixed(2)}</span>
                     </div>
                 `;
-                // --- FIM DA NOVA ADIÇÃO ---
 
                 contas.forEach(conta => {
                     const receitas = State.data.financeiro.filter(f => f.conta === conta && f.tipo === 'receita' && f.status === 'pago').reduce((a, b) => a + b.valor, 0);
@@ -1293,6 +1346,13 @@
                 document.getElementById('fin-valor').value = '';
                 document.getElementById('fin-data').value = new Date().toISOString().split('T')[0];
                 document.getElementById('fin-status').value = 'pago';
+                
+                // Habilita e reseta o campo de parcelas para novos lançamentos
+                const parcelasInput = document.getElementById('fin-parcelas');
+                if (parcelasInput) {
+                    parcelasInput.value = '1';
+                    parcelasInput.disabled = false;
+                }
             },
 
             salvarFinanceiro() {
@@ -1304,30 +1364,65 @@
                 const data = document.getElementById('fin-data').value;
                 const status = document.getElementById('fin-status').value;
                 const idEdicao = document.getElementById('fin-id').value;
+                const parcelas = parseInt(document.getElementById('fin-parcelas').value) || 1;
                 
                 if (!descricao || valor <= 0 || !data) {
                     this.showAlert('Atenção', 'Descrição, Valor e Data são obrigatórios.', true);
                     return;
                 }
 
-                const financeiroData = {
-                    tipo: tipo,
-                    conta: conta,
-                    descricao: descricao,
-                    categoria: categoria,
-                    valor: valor,
-                    data: data,
-                    status: status
-                };
-
                 if (idEdicao) {
+                    // Lógica original de Edição Individual preservada
+                    const financeiroData = {
+                        tipo: tipo,
+                        conta: conta,
+                        descricao: descricao,
+                        categoria: categoria,
+                        valor: valor,
+                        data: data,
+                        status: status
+                    };
                     const index = State.data.financeiro.findIndex(f => f.id === idEdicao);
                     if (index > -1) State.data.financeiro[index] = { id: idEdicao, ...financeiroData };
                     this.showAlert('Sucesso', `Lançamento atualizado com sucesso.`);
                 } else {
-                    const novoId = `F${String(State.data.financeiro.length + 1).padStart(3, '0')}`;
-                    State.data.financeiro.push({ id: novoId, ...financeiroData });
-                    this.showAlert('Sucesso', `Lançamento registrado com sucesso.`);
+                    // Lógica de Criação (Com suporte a múltiplas parcelas)
+                    if (parcelas > 1) {
+                        const valorParcela = valor / parcelas;
+                        
+                        for (let i = 1; i <= parcelas; i++) {
+                            let d = new Date(data + 'T12:00:00'); // T12:00:00 evita bugs de fuso horário
+                            d.setMonth(d.getMonth() + (i - 1));
+                            let dataFormatada = d.toISOString().split('T')[0];
+
+                            const novoId = `F${String(State.data.financeiro.length + 1).padStart(3, '0')}`;
+                            State.data.financeiro.push({
+                                id: novoId,
+                                tipo: tipo,
+                                conta: conta,
+                                descricao: `${descricao} (${i}/${parcelas})`,
+                                categoria: categoria,
+                                valor: valorParcela,
+                                data: dataFormatada,
+                                status: i === 1 ? status : 'pendente'
+                            });
+                        }
+                        this.showAlert('Sucesso', `Lançamento de ${parcelas} parcelas registrado.`);
+                    } else {
+                        // Lógica original intacta para lançamento único
+                        const financeiroData = {
+                            tipo: tipo,
+                            conta: conta,
+                            descricao: descricao,
+                            categoria: categoria,
+                            valor: valor,
+                            data: data,
+                            status: status
+                        };
+                        const novoId = `F${String(State.data.financeiro.length + 1).padStart(3, '0')}`;
+                        State.data.financeiro.push({ id: novoId, ...financeiroData });
+                        this.showAlert('Sucesso', `Lançamento registrado com sucesso.`);
+                    }
                 }
                 
                 this.saveDataLocally();
@@ -1349,6 +1444,13 @@
                 document.getElementById('fin-valor').value = lancamento.valor || '';
                 document.getElementById('fin-data').value = lancamento.data || '';
                 document.getElementById('fin-status').value = lancamento.status || 'pago';
+
+                // Desabilita as parcelas na edição para proteger as regras de negócio
+                const parcelasInput = document.getElementById('fin-parcelas');
+                if (parcelasInput) {
+                    parcelasInput.value = '1';
+                    parcelasInput.disabled = true;
+                }
             },
 
             excluirFinanceiro(id) {
